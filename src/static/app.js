@@ -36,8 +36,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Build participants list HTML. Show a friendly fallback if empty.
         const participantsHTML = details.participants && details.participants.length
-          ? details.participants.map(p => `<li data-initials="${getInitials(p)}">${p}</li>`).join("")
-          : `<li class="no-participants">No participants yet</li>`;
+            ? details.participants.map(p => `
+                <li data-initials="${getInitials(p)}">
+                  <span class="participant-email">${p}</span>
+                  <button class="delete-btn" data-email="${p}" title="Remove participant">✕</button>
+                </li>
+              `).join("")
+            : `<li class="no-participants">No participants yet</li>`;
 
         activityCard.innerHTML = `
           <h4>${name}</h4>
@@ -53,6 +58,57 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         activitiesList.appendChild(activityCard);
+
+          // Attach delegated click handler for delete buttons (single handler for the container)
+          // We'll add the listener once on the activities list root to capture future items as well.
+          // (Guard to avoid adding multiple identical listeners.)
+          if (!activitiesList.dataset.deleteListener) {
+            activitiesList.addEventListener('click', async (e) => {
+              const target = e.target;
+              if (!target.classList.contains('delete-btn')) return;
+
+              const email = target.dataset.email;
+              const li = target.closest('li');
+              const activityCard = target.closest('.activity-card');
+              const activityName = activityCard.querySelector('h4').textContent;
+
+              try {
+                const resp = await fetch(
+                  `/activities/${encodeURIComponent(activityName)}/signup?email=${encodeURIComponent(email)}`,
+                  { method: 'DELETE' }
+                );
+
+                const payload = await resp.json();
+
+                if (resp.ok) {
+                  // Remove the participant element from the list
+                  const ul = li.parentElement;
+                  li.remove();
+
+                  // If no participants remain, show the friendly fallback
+                  const remaining = ul.querySelectorAll('li:not(.no-participants)');
+                  if (remaining.length === 0) {
+                    ul.innerHTML = '<li class="no-participants">No participants yet</li>';
+                  }
+
+                  messageDiv.textContent = payload.message;
+                  messageDiv.className = 'success';
+                  messageDiv.classList.remove('hidden');
+                  setTimeout(() => messageDiv.classList.add('hidden'), 5000);
+                } else {
+                  messageDiv.textContent = payload.detail || 'Failed to remove participant';
+                  messageDiv.className = 'error';
+                  messageDiv.classList.remove('hidden');
+                }
+              } catch (err) {
+                console.error('Error removing participant:', err);
+                messageDiv.textContent = 'Failed to remove participant. Please try again.';
+                messageDiv.className = 'error';
+                messageDiv.classList.remove('hidden');
+              }
+            });
+            activitiesList.dataset.deleteListener = 'true';
+          }
 
         // Add option to select dropdown
         const option = document.createElement("option");
@@ -87,6 +143,29 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
+        
+        // Update the activity card's participants list
+        const activityCard = [...document.querySelectorAll('.activity-card')]
+          .find(card => card.querySelector('h4').textContent === activity);
+        
+        if (activityCard) {
+          const participantsList = activityCard.querySelector('.participants-list');
+          const noParticipantsMsg = participantsList.querySelector('.no-participants');
+          
+          // If there was a "no participants" message, remove it
+          if (noParticipantsMsg) {
+            noParticipantsMsg.remove();
+          }
+          
+          // Create and add the new participant element
+          const newParticipant = document.createElement('li');
+          newParticipant.dataset.initials = getInitials(email);
+          newParticipant.innerHTML = `
+            <span class="participant-email">${email}</span>
+            <button class="delete-btn" data-email="${email}" title="Remove participant">✕</button>
+          `;
+          participantsList.appendChild(newParticipant);
+        }
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";
